@@ -16,6 +16,8 @@
 /* PoC LIFF ID only. This is a public identifier, not a credential. */
 const LIFF_ID = '2009668362-3dydAR8b';
 const ALLOWED_ROUTES = new Set(['home', 'companies', 'reservation', 'ticket', 'tour', 'gate']);
+const PENDING_PARAMS_KEY = 'nikkon-liff-bridge-test-pending-v1';
+const PENDING_PARAMS_TTL_MS = 10 * 60 * 1000;
 const statusEl = document.getElementById('status');
 function show(text){ statusEl.innerHTML = '<div class="spinner"></div>' + text; }
 function fail(error){ statusEl.innerHTML = '<div class="error"><b>LINE認証を完了できませんでした。</b><br>' + String(error && error.message || error) + '</div>'; }
@@ -29,17 +31,43 @@ function allowedRoute(value){
   const route = String(value || '').trim().toLowerCase();
   return ALLOWED_ROUTES.has(route) ? route : 'home';
 }
+function storedParams(){
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(PENDING_PARAMS_KEY) || 'null');
+    if (!saved || !Number.isFinite(saved.savedAt) || Date.now() - saved.savedAt > PENDING_PARAMS_TTL_MS) {
+      sessionStorage.removeItem(PENDING_PARAMS_KEY);
+      return new URLSearchParams();
+    }
+    const result = new URLSearchParams();
+    ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){
+      if (typeof saved[name] === 'string' && saved[name].length <= 2048) result.set(name, saved[name]);
+    });
+    return result;
+  } catch (_) {
+    sessionStorage.removeItem(PENDING_PARAMS_KEY);
+    return new URLSearchParams();
+  }
+}
+function rememberParams(p){
+  const saved = { savedAt: Date.now() };
+  ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){ saved[name] = p.get(name) || ''; });
+  sessionStorage.setItem(PENDING_PARAMS_KEY, JSON.stringify(saved));
+}
+function clearStoredParams(){ sessionStorage.removeItem(PENDING_PARAMS_KEY); }
 function params(){
   const url = new URL(location.href);
   const direct = new URLSearchParams(url.search);
   const nested = stateParams(direct.get('liff.state'));
+  const stored = storedParams();
   const merged = new URLSearchParams(direct);
   ['gas', 'event', 'action', 'token'].forEach(function(name){
     if (!merged.has(name) && nested.has(name)) merged.set(name, nested.get(name));
+    if (!merged.has(name) && stored.has(name)) merged.set(name, stored.get(name));
   });
   const directRoute = direct.get('route') || direct.get('page');
   const nestedRoute = nested.get('route') || nested.get('page');
-  merged.set('route', allowedRoute(directRoute != null ? directRoute : nestedRoute));
+  const storedRoute = stored.get('route');
+  merged.set('route', allowedRoute(directRoute != null ? directRoute : (nestedRoute != null ? nestedRoute : storedRoute)));
   return merged;
 }
 function addField(form, name, value){ const input=document.createElement('input'); input.type='hidden'; input.name=name; input.value=value||''; form.appendChild(input); }
@@ -50,9 +78,14 @@ async function start(){
     if (!gasUrl || !/^https:\/\/script\.google\.com\/macros\/s\//.test(gasUrl)) throw new Error('検証用GAS URLが指定されていません。');
     show('LINEへ接続しています…');
     await liff.init({liffId:LIFF_ID, withLoginOnExternalBrowser:true});
-    if (!liff.isLoggedIn()) { liff.login({redirectUri:location.href}); return; }
+    if (!liff.isLoggedIn()) {
+      rememberParams(p);
+      liff.login({redirectUri:location.origin + location.pathname});
+      return;
+    }
     const idToken = liff.getIDToken();
     if (!idToken) throw new Error('LINE本人確認情報を取得できませんでした。');
+    clearStoredParams();
     show('認証できました。参加者画面を開いています…');
     const form=document.createElement('form'); form.method='POST'; form.action=gasUrl;
     addField(form,'bridgeAction','liffBridge'); addField(form,'idToken',idToken);

@@ -4,14 +4,27 @@ import vm from 'node:vm';
 
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
-const source = scripts.at(-1)[1].replace(/\bstart\(\);\s*$/, 'globalThis.__bridge = { params, allowedRoute, stateParams };');
+const source = scripts.at(-1)[1].replace(/\bstart\(\);\s*$/, 'globalThis.__bridge = { params, allowedRoute, stateParams, rememberParams, clearStoredParams };');
 
-function bridgeFor(href) {
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+}
+
+function bridgeFor(href, sessionStorage = memoryStorage()) {
   const context = {
     URL,
     URLSearchParams,
     Set,
     String,
+    Number,
+    Date,
+    JSON,
+    sessionStorage,
     location: { href },
     document: { getElementById: () => ({ innerHTML: '' }) },
   };
@@ -22,8 +35,8 @@ function bridgeFor(href) {
 
 const TEST_GAS = 'https://script.google.com/macros/s/TEST_DEPLOYMENT/exec';
 
-function read(href) {
-  const result = bridgeFor(href).params();
+function read(href, sessionStorage) {
+  const result = bridgeFor(href, sessionStorage).params();
   return Object.fromEntries(result.entries());
 }
 
@@ -43,6 +56,19 @@ assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&lif
 assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&liff.state=${encodeURIComponent('https://attacker.invalid/?route=companies')}`).route, 'home');
 assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&liff.state=${encodeURIComponent('?page=companies')}`).route, 'companies');
 assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&route=COMPANIES`).route, 'companies');
+
+const loginStorage = memoryStorage();
+const beforeLogin = bridgeFor(`https://example.test/?liff.state=${encodeURIComponent(`?route=companies&gas=${encodeURIComponent(TEST_GAS)}`)}`, loginStorage);
+beforeLogin.rememberParams(beforeLogin.params());
+assert.deepEqual(read('https://example.test/', loginStorage), {
+  gas: TEST_GAS,
+  route: 'companies',
+  event: '',
+  action: '',
+  token: '',
+});
+beforeLogin.clearStoredParams();
+assert.deepEqual(read('https://example.test/', loginStorage), { route: 'home' });
 
 assert.match(source, /\^https:\\\/\\\/script\\\.google\\\.com\\\/macros\\\/s\\\//);
 assert.match(source, /const LIFF_ID = '2009668362-3dydAR8b'/);
