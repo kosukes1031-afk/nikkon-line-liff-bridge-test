@@ -15,7 +15,23 @@ function memoryStorage() {
   };
 }
 
-function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memoryStorage()) {
+function memoryCookieDocument() {
+  const values = new Map();
+  return {
+    getElementById: () => ({ innerHTML: '' }),
+    get cookie() { return [...values].map(([name, value]) => `${name}=${value}`).join('; '); },
+    set cookie(serialized) {
+      const [pair, ...attributes] = String(serialized).split(';').map((part) => part.trim());
+      const separator = pair.indexOf('=');
+      const name = pair.slice(0, separator);
+      const value = pair.slice(separator + 1);
+      if (attributes.some((part) => part.toLowerCase() === 'max-age=0')) values.delete(name);
+      else values.set(name, value);
+    },
+  };
+}
+
+function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memoryStorage(), document = memoryCookieDocument()) {
   const parsedLocation = new URL(href);
   const context = {
     URL,
@@ -28,7 +44,7 @@ function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memory
     sessionStorage,
     localStorage,
     location: { href, origin: parsedLocation.origin, pathname: parsedLocation.pathname },
-    document: { getElementById: () => ({ innerHTML: '' }) },
+    document,
   };
   vm.createContext(context);
   vm.runInContext(source, context);
@@ -37,8 +53,8 @@ function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memory
 
 const TEST_GAS = 'https://script.google.com/macros/s/TEST_DEPLOYMENT/exec';
 
-function read(href, sessionStorage, localStorage) {
-  const result = bridgeFor(href, sessionStorage, localStorage).params();
+function read(href, sessionStorage, localStorage, document) {
+  const result = bridgeFor(href, sessionStorage, localStorage, document).params();
   return Object.fromEntries(result.entries());
 }
 
@@ -81,6 +97,21 @@ assert.deepEqual(read('https://example.test/', replacementSessionStorage, loginL
   event: '',
   action: '',
   token: '',
+});
+
+const cookieDocument = memoryCookieDocument();
+const cookieLogin = bridgeFor(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&route=companies`, memoryStorage(), memoryStorage(), cookieDocument);
+cookieLogin.rememberParams(cookieLogin.params());
+assert.deepEqual(read('https://example.test/?code=callback&state=oauth', memoryStorage(), memoryStorage(), cookieDocument), {
+  code: 'callback',
+  state: 'oauth',
+  gas: TEST_GAS,
+  route: 'companies',
+});
+cookieLogin.clearStoredParams();
+assert.deepEqual(read('https://example.test/?code=callback', memoryStorage(), memoryStorage(), cookieDocument), {
+  code: 'callback',
+  route: 'home',
 });
 
 const redirectBridge = bridgeFor('https://example.test/bridge/', memoryStorage());

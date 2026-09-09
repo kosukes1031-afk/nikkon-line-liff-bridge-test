@@ -47,6 +47,18 @@ function storedParams(){
   } catch (_) {
     store.removeItem(PENDING_PARAMS_KEY);
   }
+  try {
+    const prefix = PENDING_PARAMS_KEY + '=';
+    const raw = String(document.cookie || '').split(';').map(function(part){ return part.trim(); }).find(function(part){ return part.startsWith(prefix); });
+    const saved = raw ? JSON.parse(decodeURIComponent(raw.slice(prefix.length))) : null;
+    if (saved && Number.isFinite(saved.savedAt) && Date.now() - saved.savedAt <= PENDING_PARAMS_TTL_MS) {
+      const result = new URLSearchParams();
+      ['gas', 'route'].forEach(function(name){
+        if (typeof saved[name] === 'string' && saved[name].length <= 2048) result.set(name, saved[name]);
+      });
+      return result;
+    }
+  } catch (_) {}
   return new URLSearchParams();
 }
 function rememberParams(p){
@@ -55,10 +67,13 @@ function rememberParams(p){
   const serialized = JSON.stringify(saved);
   sessionStorage.setItem(PENDING_PARAMS_KEY, serialized);
   localStorage.setItem(PENDING_PARAMS_KEY, serialized);
+  const cookieSaved = JSON.stringify({ savedAt: saved.savedAt, gas: saved.gas, route: saved.route });
+  document.cookie = PENDING_PARAMS_KEY + '=' + encodeURIComponent(cookieSaved) + '; Max-Age=600; Path=/nikkon-line-liff-bridge-test/; SameSite=Lax; Secure';
 }
 function clearStoredParams(){
   sessionStorage.removeItem(PENDING_PARAMS_KEY);
   localStorage.removeItem(PENDING_PARAMS_KEY);
+  document.cookie = PENDING_PARAMS_KEY + '=; Max-Age=0; Path=/nikkon-line-liff-bridge-test/; SameSite=Lax; Secure';
 }
 function loginRedirectUrl(p){
   const redirect = new URL(location.origin + location.pathname);
