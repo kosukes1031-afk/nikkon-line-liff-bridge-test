@@ -4,7 +4,7 @@ import vm from 'node:vm';
 
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
-const source = scripts.at(-1)[1].replace(/\bstart\(\);\s*$/, 'globalThis.__bridge = { params, allowedRoute, stateParams, rememberParams, clearStoredParams };');
+const source = scripts.at(-1)[1].replace(/\bstart\(\);\s*$/, 'globalThis.__bridge = { params, allowedRoute, stateParams, rememberParams, clearStoredParams, loginRedirectUrl };');
 
 function memoryStorage() {
   const values = new Map();
@@ -16,6 +16,7 @@ function memoryStorage() {
 }
 
 function bridgeFor(href, sessionStorage = memoryStorage()) {
+  const parsedLocation = new URL(href);
   const context = {
     URL,
     URLSearchParams,
@@ -25,7 +26,7 @@ function bridgeFor(href, sessionStorage = memoryStorage()) {
     Date,
     JSON,
     sessionStorage,
-    location: { href },
+    location: { href, origin: parsedLocation.origin, pathname: parsedLocation.pathname },
     document: { getElementById: () => ({ innerHTML: '' }) },
   };
   vm.createContext(context);
@@ -69,6 +70,13 @@ assert.deepEqual(read('https://example.test/', loginStorage), {
 });
 beforeLogin.clearStoredParams();
 assert.deepEqual(read('https://example.test/', loginStorage), { route: 'home' });
+
+const redirectBridge = bridgeFor('https://example.test/bridge/', memoryStorage());
+const redirectParams = new URLSearchParams({ gas: TEST_GAS, route: 'companies' });
+const loginRedirect = new URL(redirectBridge.loginRedirectUrl(redirectParams));
+assert.equal(loginRedirect.origin + loginRedirect.pathname, 'https://example.test/bridge/');
+assert.equal(loginRedirect.searchParams.get('gas'), TEST_GAS);
+assert.equal(loginRedirect.searchParams.get('route'), 'companies');
 
 assert.match(source, /\^https:\\\/\\\/script\\\.google\\\.com\\\/macros\\\/s\\\//);
 assert.match(source, /const LIFF_ID = '2009668362-3dydAR8b'/);

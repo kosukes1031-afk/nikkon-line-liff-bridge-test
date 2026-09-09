@@ -54,6 +54,14 @@ function rememberParams(p){
   sessionStorage.setItem(PENDING_PARAMS_KEY, JSON.stringify(saved));
 }
 function clearStoredParams(){ sessionStorage.removeItem(PENDING_PARAMS_KEY); }
+function loginRedirectUrl(p){
+  const redirect = new URL(location.origin + location.pathname);
+  ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){
+    const value = p.get(name);
+    if (value) redirect.searchParams.set(name, value);
+  });
+  return redirect.href;
+}
 function params(){
   const url = new URL(location.href);
   const direct = new URLSearchParams(url.search);
@@ -80,7 +88,7 @@ async function start(){
     await liff.init({liffId:LIFF_ID, withLoginOnExternalBrowser:true});
     if (!liff.isLoggedIn()) {
       rememberParams(p);
-      liff.login({redirectUri:location.origin + location.pathname});
+      liff.login({redirectUri:loginRedirectUrl(p)});
       return;
     }
     const idToken = liff.getIDToken();
