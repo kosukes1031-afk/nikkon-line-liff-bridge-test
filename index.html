@@ -16,7 +16,7 @@
 /* PoC LIFF ID only. This is a public identifier, not a credential. */
 const LIFF_ID = '2009668362-3dydAR8b';
 const ALLOWED_ROUTES = new Set(['home', 'companies', 'reservation', 'ticket', 'tour', 'gate']);
-const PENDING_PARAMS_KEY = 'nikkon-liff-bridge-test-pending-v1';
+const PENDING_PARAMS_KEY = 'nikkon-liff-bridge-test-pending-v2';
 const PENDING_PARAMS_TTL_MS = 10 * 60 * 1000;
 const statusEl = document.getElementById('status');
 function show(text){ statusEl.innerHTML = '<div class="spinner"></div>' + text; }
@@ -32,11 +32,12 @@ function allowedRoute(value){
   return ALLOWED_ROUTES.has(route) ? route : 'home';
 }
 function storedParams(){
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(PENDING_PARAMS_KEY) || 'null');
+  const stores = [sessionStorage, localStorage];
+  for (const store of stores) try {
+    const saved = JSON.parse(store.getItem(PENDING_PARAMS_KEY) || 'null');
     if (!saved || !Number.isFinite(saved.savedAt) || Date.now() - saved.savedAt > PENDING_PARAMS_TTL_MS) {
-      sessionStorage.removeItem(PENDING_PARAMS_KEY);
-      return new URLSearchParams();
+      store.removeItem(PENDING_PARAMS_KEY);
+      continue;
     }
     const result = new URLSearchParams();
     ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){
@@ -44,16 +45,21 @@ function storedParams(){
     });
     return result;
   } catch (_) {
-    sessionStorage.removeItem(PENDING_PARAMS_KEY);
-    return new URLSearchParams();
+    store.removeItem(PENDING_PARAMS_KEY);
   }
+  return new URLSearchParams();
 }
 function rememberParams(p){
   const saved = { savedAt: Date.now() };
   ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){ saved[name] = p.get(name) || ''; });
-  sessionStorage.setItem(PENDING_PARAMS_KEY, JSON.stringify(saved));
+  const serialized = JSON.stringify(saved);
+  sessionStorage.setItem(PENDING_PARAMS_KEY, serialized);
+  localStorage.setItem(PENDING_PARAMS_KEY, serialized);
 }
-function clearStoredParams(){ sessionStorage.removeItem(PENDING_PARAMS_KEY); }
+function clearStoredParams(){
+  sessionStorage.removeItem(PENDING_PARAMS_KEY);
+  localStorage.removeItem(PENDING_PARAMS_KEY);
+}
 function loginRedirectUrl(p){
   const redirect = new URL(location.origin + location.pathname);
   ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){
