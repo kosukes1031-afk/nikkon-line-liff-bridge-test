@@ -110,22 +110,24 @@ async function start(){
     const p = params();
     const gasUrl = allowedGasUrl(p.get('gas'));
     if (!gasUrl) throw new Error('検証用GAS URLが指定されていません。');
+    p.set('gas', gasUrl);
+    p.set('route', allowedRoute(p.get('route')));
+    rememberParams(p);
     show('LINEへ接続しています…');
     await liff.init({liffId:LIFF_ID, withLoginOnExternalBrowser:true});
     if (!liff.isLoggedIn()) {
-      rememberParams(p);
       liff.login({redirectUri:loginRedirectUrl(p)});
       return;
     }
     const idToken = liff.getIDToken();
     if (!idToken) throw new Error('LINE本人確認情報を取得できませんでした。');
-    clearStoredParams();
     show('認証できました。参加者画面を開いています…');
     const form=document.createElement('form'); form.method='POST'; form.action=gasUrl;
     addField(form,'bridgeAction','liffBridge'); addField(form,'idToken',idToken);
     addField(form,'route',p.get('route')||'home');
     addField(form,'event',p.get('event')||''); addField(form,'routeAction',p.get('action')||''); addField(form,'token',p.get('token')||'');
     document.body.appendChild(form); form.submit();
+    clearStoredParams();
   } catch (error) { fail(error); }
 }
 start();

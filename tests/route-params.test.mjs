@@ -129,4 +129,9 @@ assert.match(source, /GAS_URL_PATTERN/);
 assert.match(source, /const LIFF_ID = '2009668362-3dydAR8b'/);
 assert.doesNotMatch(source, /const\s+GAS_URL\s*=/);
 
+const startSource = source.slice(source.indexOf('async function start()'));
+assert.ok(startSource.indexOf('rememberParams(p);') < startSource.indexOf('await liff.init('));
+assert.ok(startSource.indexOf('form.submit();') < startSource.indexOf('clearStoredParams();'));
+assert.equal((startSource.match(/rememberParams\(p\);/g) || []).length, 1);
+
 console.log('route-params: all tests passed');
