@@ -15,13 +15,32 @@
 <script>
 /* PoC LIFF ID only. This is a public identifier, not a credential. */
 const LIFF_ID = '2009668362-3dydAR8b';
+const ALLOWED_ROUTES = new Set(['home', 'companies', 'reservation', 'ticket', 'tour', 'gate']);
 const statusEl = document.getElementById('status');
 function show(text){ statusEl.innerHTML = '<div class="spinner"></div>' + text; }
 function fail(error){ statusEl.innerHTML = '<div class="error"><b>LINE認証を完了できませんでした。</b><br>' + String(error && error.message || error) + '</div>'; }
+function stateParams(rawState){
+  const state = String(rawState || '').trim();
+  if (!state || state.length > 2048 || /^[a-z][a-z0-9+.-]*:/i.test(state) || state.startsWith('//')) return new URLSearchParams();
+  try { return new URLSearchParams(state.startsWith('?') ? state.slice(1) : state); }
+  catch (_) { return new URLSearchParams(); }
+}
+function allowedRoute(value){
+  const route = String(value || '').trim().toLowerCase();
+  return ALLOWED_ROUTES.has(route) ? route : 'home';
+}
 function params(){
   const url = new URL(location.href);
-  const state = url.searchParams.get('liff.state');
-  return new URLSearchParams(state || url.search);
+  const direct = new URLSearchParams(url.search);
+  const nested = stateParams(direct.get('liff.state'));
+  const merged = new URLSearchParams(direct);
+  ['gas', 'event', 'action', 'token'].forEach(function(name){
+    if (!merged.has(name) && nested.has(name)) merged.set(name, nested.get(name));
+  });
+  const directRoute = direct.get('route') || direct.get('page');
+  const nestedRoute = nested.get('route') || nested.get('page');
+  merged.set('route', allowedRoute(directRoute != null ? directRoute : nestedRoute));
+  return merged;
 }
 function addField(form, name, value){ const input=document.createElement('input'); input.type='hidden'; input.name=name; input.value=value||''; form.appendChild(input); }
 async function start(){
@@ -37,7 +56,7 @@ async function start(){
     show('認証できました。参加者画面を開いています…');
     const form=document.createElement('form'); form.method='POST'; form.action=gasUrl;
     addField(form,'bridgeAction','liffBridge'); addField(form,'idToken',idToken);
-    addField(form,'route',p.get('route')||p.get('page')||'home');
+    addField(form,'route',p.get('route')||'home');
     addField(form,'event',p.get('event')||''); addField(form,'routeAction',p.get('action')||''); addField(form,'token',p.get('token')||'');
     document.body.appendChild(form); form.submit();
   } catch (error) { fail(error); }
