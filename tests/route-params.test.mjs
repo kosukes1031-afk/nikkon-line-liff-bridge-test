@@ -4,7 +4,7 @@ import vm from 'node:vm';
 
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
-const source = scripts.at(-1)[1].replace(/\bstart\(\);\s*$/, 'globalThis.__bridge = { params, allowedRoute, stateParams, rememberParams, clearStoredParams, loginRedirectUrl };');
+const source = scripts.at(-1)[1].replace(/\bstart\(\);\s*$/, 'globalThis.__bridge = { params, allowedRoute, allowedGasUrl, stateParams, rememberParams, clearStoredParams, loginRedirectUrl };');
 
 function memoryStorage() {
   const values = new Map();
@@ -52,6 +52,10 @@ function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memory
 }
 
 const TEST_GAS = 'https://script.google.com/macros/s/TEST_DEPLOYMENT/exec';
+
+assert.equal(bridgeFor('https://example.test/').allowedGasUrl(TEST_GAS), TEST_GAS);
+assert.equal(bridgeFor('https://example.test/').allowedGasUrl(`${TEST_GAS}?unexpected=1`), '');
+assert.equal(bridgeFor('https://example.test/').allowedGasUrl('https://attacker.invalid/macros/s/TEST_DEPLOYMENT/exec'), '');
 
 function read(href, sessionStorage, localStorage, document) {
   const result = bridgeFor(href, sessionStorage, localStorage, document).params();
@@ -121,7 +125,7 @@ assert.equal(loginRedirect.origin + loginRedirect.pathname, 'https://example.tes
 assert.equal(loginRedirect.searchParams.get('gas'), TEST_GAS);
 assert.equal(loginRedirect.searchParams.get('route'), 'companies');
 
-assert.match(source, /\^https:\\\/\\\/script\\\.google\\\.com\\\/macros\\\/s\\\//);
+assert.match(source, /GAS_URL_PATTERN/);
 assert.match(source, /const LIFF_ID = '2009668362-3dydAR8b'/);
 assert.doesNotMatch(source, /const\s+GAS_URL\s*=/);
 
