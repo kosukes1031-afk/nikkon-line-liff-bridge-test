@@ -127,6 +127,7 @@ assert.equal(loginRedirect.searchParams.get('route'), 'companies');
 
 assert.match(source, /GAS_URL_PATTERN/);
 assert.match(source, /const LIFF_ID = '2009668362-3dydAR8b'/);
+assert.match(source, /const DEFAULT_POC_GAS_URL = 'https:\/\/script\.google\.com\/macros\/s\/AKfycbxnkQ-bUwwSBk3r1a2A3KecxOXRNgUjHuxWOYKd7gCU7oXvEuM1OItJRBVohToPYnatTQ\/exec'/);
 assert.doesNotMatch(source, /const\s+GAS_URL\s*=/);
 
 const startSource = source.slice(source.indexOf('async function start()'));

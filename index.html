@@ -15,6 +15,7 @@
 <script>
 /* PoC LIFF ID only. This is a public identifier, not a credential. */
 const LIFF_ID = '2009668362-3dydAR8b';
+const DEFAULT_POC_GAS_URL = 'https://script.google.com/macros/s/AKfycbxnkQ-bUwwSBk3r1a2A3KecxOXRNgUjHuxWOYKd7gCU7oXvEuM1OItJRBVohToPYnatTQ/exec';
 const ALLOWED_ROUTES = new Set(['home', 'companies', 'reservation', 'ticket', 'tour', 'gate']);
 const GAS_URL_PATTERN = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
 const PENDING_PARAMS_KEY = 'nikkon-liff-bridge-test-pending-v2';
@@ -108,7 +109,7 @@ function addField(form, name, value){ const input=document.createElement('input'
 async function start(){
   try {
     const p = params();
-    const gasUrl = allowedGasUrl(p.get('gas'));
+    const gasUrl = allowedGasUrl(p.get('gas') || DEFAULT_POC_GAS_URL);
     if (!gasUrl) throw new Error('検証用GAS URLが指定されていません。');
     p.set('gas', gasUrl);
     p.set('route', allowedRoute(p.get('route')));
