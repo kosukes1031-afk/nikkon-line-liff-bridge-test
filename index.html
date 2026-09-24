@@ -46,7 +46,7 @@ function storedParams(){
       continue;
     }
     const result = new URLSearchParams();
-    ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){
+    ['gas', 'route', 'event', 'action', 'token', 'companyId'].forEach(function(name){
       if (typeof saved[name] === 'string' && saved[name].length <= 2048) result.set(name, saved[name]);
     });
     return result;
@@ -69,11 +69,11 @@ function storedParams(){
 }
 function rememberParams(p){
   const saved = { savedAt: Date.now() };
-  ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){ saved[name] = p.get(name) || ''; });
+  ['gas', 'route', 'event', 'action', 'token', 'companyId'].forEach(function(name){ saved[name] = p.get(name) || ''; });
   const serialized = JSON.stringify(saved);
   sessionStorage.setItem(PENDING_PARAMS_KEY, serialized);
   localStorage.setItem(PENDING_PARAMS_KEY, serialized);
-  const cookieSaved = JSON.stringify({ savedAt: saved.savedAt, gas: saved.gas, route: saved.route });
+  const cookieSaved = JSON.stringify({ savedAt: saved.savedAt, gas: saved.gas, route: saved.route, companyId: saved.companyId });
   document.cookie = PENDING_PARAMS_KEY + '=' + encodeURIComponent(cookieSaved) + '; Max-Age=600; Path=/nikkon-line-liff-bridge-test/; SameSite=Lax; Secure';
 }
 function clearStoredParams(){
@@ -83,7 +83,7 @@ function clearStoredParams(){
 }
 function loginRedirectUrl(p){
   const redirect = new URL(location.origin + location.pathname);
-  ['gas', 'route', 'event', 'action', 'token'].forEach(function(name){
+  ['gas', 'route', 'event', 'action', 'token', 'companyId'].forEach(function(name){
     const value = p.get(name);
     if (value) redirect.searchParams.set(name, value);
   });
@@ -95,7 +95,7 @@ function params(){
   const nested = stateParams(direct.get('liff.state'));
   const stored = storedParams();
   const merged = new URLSearchParams(direct);
-  ['gas', 'event', 'action', 'token'].forEach(function(name){
+  ['gas', 'event', 'action', 'token', 'companyId'].forEach(function(name){
     if (!merged.has(name) && nested.has(name)) merged.set(name, nested.get(name));
     if (!merged.has(name) && stored.has(name)) merged.set(name, stored.get(name));
   });
@@ -126,7 +126,7 @@ async function start(){
     const form=document.createElement('form'); form.method='POST'; form.action=gasUrl;
     addField(form,'bridgeAction','liffBridge'); addField(form,'idToken',idToken);
     addField(form,'route',p.get('route')||'home');
-    addField(form,'event',p.get('event')||''); addField(form,'routeAction',p.get('action')||''); addField(form,'token',p.get('token')||'');
+    addField(form,'event',p.get('event')||''); addField(form,'routeAction',p.get('action')||''); addField(form,'token',p.get('token')||''); addField(form,'companyId',p.get('companyId')||'');
     document.body.appendChild(form); form.submit();
     clearStoredParams();
   } catch (error) { fail(error); }
