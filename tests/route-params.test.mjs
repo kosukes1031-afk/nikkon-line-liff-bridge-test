@@ -78,6 +78,11 @@ assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&lif
 assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&liff.state=${encodeURIComponent('https://attacker.invalid/?route=companies')}`).route, 'home');
 assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&liff.state=${encodeURIComponent('?page=companies')}`).route, 'companies');
 assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&route=COMPANIES`).route, 'companies');
+for (const route of ['home', 'companies', 'reservation', 'ticket', 'tour', 'tour-direct', 'tour-later', 'gate']) {
+  assert.equal(read(`https://example.test/?route=${route}`).route, route);
+}
+assert.equal(read('https://example.test/?route=tour-later&companyId=20260915-1').companyId, '20260915-1');
+assert.equal(read(`https://example.test/?liff.state=${encodeURIComponent('?route=tour-later&companyId=20260915-1')}`).route, 'tour-later');
 
 const loginSessionStorage = memoryStorage();
 const loginLocalStorage = memoryStorage();
@@ -89,6 +94,7 @@ assert.deepEqual(read('https://example.test/', loginSessionStorage, loginLocalSt
   event: '',
   action: '',
   token: '',
+  companyId: '',
 });
 beforeLogin.clearStoredParams();
 assert.deepEqual(read('https://example.test/', loginSessionStorage, loginLocalStorage), { route: 'home' });
@@ -101,6 +107,7 @@ assert.deepEqual(read('https://example.test/', replacementSessionStorage, loginL
   event: '',
   action: '',
   token: '',
+  companyId: '',
 });
 
 const cookieDocument = memoryCookieDocument();
