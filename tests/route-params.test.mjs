@@ -83,6 +83,11 @@ for (const route of ['home', 'companies', 'reservation', 'ticket', 'tour', 'tour
 }
 assert.equal(read('https://example.test/?route=tour-later&companyId=20260915-1').companyId, '20260915-1');
 assert.equal(read(`https://example.test/?liff.state=${encodeURIComponent('?route=tour-later&companyId=20260915-1')}`).route, 'tour-later');
+assert.deepEqual(read('https://example.test/?route=tour-direct&companyId=20260915-1'), { route: 'tour-direct', companyId: '20260915-1' });
+assert.deepEqual(read('https://example.test/?route=tour-later&companyId=20260915-2'), { route: 'tour-later', companyId: '20260915-2' });
+assert.equal(read(`https://example.test/?liff.state=${encodeURIComponent('?route=tour-later&companyId=20260915-3')}`).companyId, '20260915-3');
+assert.equal(read('https://example.test/?route=unknown&companyId=20260915-4').companyId, undefined);
+assert.equal(read('https://example.test/?route=tour-later').companyId, undefined);
 
 const loginSessionStorage = memoryStorage();
 const loginLocalStorage = memoryStorage();
@@ -118,6 +123,7 @@ assert.deepEqual(read('https://example.test/?code=callback&state=oauth', memoryS
   state: 'oauth',
   gas: TEST_GAS,
   route: 'companies',
+  companyId: '',
 });
 cookieLogin.clearStoredParams();
 assert.deepEqual(read('https://example.test/?code=callback', memoryStorage(), memoryStorage(), cookieDocument), {
@@ -131,6 +137,25 @@ const loginRedirect = new URL(redirectBridge.loginRedirectUrl(redirectParams));
 assert.equal(loginRedirect.origin + loginRedirect.pathname, 'https://example.test/bridge/');
 assert.equal(loginRedirect.searchParams.get('gas'), TEST_GAS);
 assert.equal(loginRedirect.searchParams.get('route'), 'companies');
+
+const tourCookieDocument = memoryCookieDocument();
+const tourBeforeLogin = bridgeFor('https://example.test/?route=tour-later&companyId=20260915-5', memoryStorage(), memoryStorage(), tourCookieDocument);
+tourBeforeLogin.rememberParams(tourBeforeLogin.params());
+const cookieOnly = read('https://example.test/?code=callback', memoryStorage(), memoryStorage(), tourCookieDocument);
+assert.equal(cookieOnly.route, 'tour-later');
+assert.equal(cookieOnly.companyId, '20260915-5');
+const cookieRedirect = new URL(tourBeforeLogin.loginRedirectUrl(new URLSearchParams(cookieOnly)));
+assert.equal(cookieRedirect.searchParams.get('companyId'), '20260915-5');
+assert.equal(read('https://example.test/?route=tour-later&companyId=20260915-2', memoryStorage(), memoryStorage(), tourCookieDocument).companyId, '20260915-2');
+assert.equal(read(`https://example.test/?liff.state=${encodeURIComponent('?route=tour-later&companyId=20260915-3')}`, memoryStorage(), memoryStorage(), tourCookieDocument).companyId, '20260915-3');
+assert.equal(read('https://example.test/?route=unknown&companyId=20260915-4', memoryStorage(), memoryStorage(), tourCookieDocument).companyId, undefined);
+
+const storedSession = memoryStorage();
+const storedLocal = memoryStorage();
+const storageBridge = bridgeFor('https://example.test/?route=tour-direct&companyId=20260915-6', storedSession, storedLocal);
+storageBridge.rememberParams(storageBridge.params());
+assert.equal(read('https://example.test/', storedSession, memoryStorage()).companyId, '20260915-6');
+assert.equal(read('https://example.test/', memoryStorage(), storedLocal).companyId, '20260915-6');
 
 assert.match(source, /GAS_URL_PATTERN/);
 assert.match(source, /const LIFF_ID = '2009668362-3dydAR8b'/);

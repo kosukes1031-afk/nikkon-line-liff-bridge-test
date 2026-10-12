@@ -61,7 +61,7 @@ function storedParams(){
     const saved = raw ? JSON.parse(decodeURIComponent(raw.slice(prefix.length))) : null;
     if (saved && Number.isFinite(saved.savedAt) && Date.now() - saved.savedAt <= PENDING_PARAMS_TTL_MS) {
       const result = new URLSearchParams();
-      ['gas', 'route'].forEach(function(name){
+      ['gas', 'route', 'companyId'].forEach(function(name){
         if (typeof saved[name] === 'string' && saved[name].length <= 2048) result.set(name, saved[name]);
       });
       return result;
@@ -104,7 +104,9 @@ function params(){
   const directRoute = direct.get('route') || direct.get('page');
   const nestedRoute = nested.get('route') || nested.get('page');
   const storedRoute = stored.get('route');
-  merged.set('route', allowedRoute(directRoute != null ? directRoute : (nestedRoute != null ? nestedRoute : storedRoute)));
+  const route = allowedRoute(directRoute != null ? directRoute : (nestedRoute != null ? nestedRoute : storedRoute));
+  merged.set('route', route);
+  if (route === 'home') merged.delete('companyId');
   return merged;
 }
 function addField(form, name, value){ const input=document.createElement('input'); input.type='hidden'; input.name=name; input.value=value||''; form.appendChild(input); }
