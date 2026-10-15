@@ -14,6 +14,13 @@ function memoryStorage() {
     removeItem: (key) => values.delete(key),
   };
 }
+function blockedStorage() {
+  return {
+    getItem() { throw new Error('storage blocked'); },
+    setItem() { throw new Error('storage blocked'); },
+    removeItem() { throw new Error('storage blocked'); },
+  };
+}
 
 function memoryCookieDocument() {
   const values = new Map();
@@ -58,6 +65,8 @@ function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memory
     location: { href, origin: parsedLocation.origin, pathname: parsedLocation.pathname },
     document,
   };
+  if (sessionStorage === null) Object.defineProperty(context, 'sessionStorage', { get() { throw new Error('sessionStorage blocked'); } });
+  if (localStorage === null) Object.defineProperty(context, 'localStorage', { get() { throw new Error('localStorage blocked'); } });
   vm.createContext(context);
   vm.runInContext(source, context);
   return { ...context.__bridge, effects: document.effects };
@@ -235,6 +244,36 @@ const authRedirect = new URL(loginStart.effects.redirects[0]);
 assert.equal(authRedirect.searchParams.get('route'), 'tour-later');
 assert.equal(authRedirect.searchParams.get('companyId'), '20260915-3');
 assert.equal(authRedirect.searchParams.has('gas'), false);
+
+// Unavailable storage does not prevent a query-driven safe start or auth redirect.
+function blockedCookieDocument() {
+  const document = memoryCookieDocument();
+  Object.defineProperty(document, 'cookie', { get() { throw new Error('cookie blocked'); }, set() { throw new Error('cookie blocked'); } });
+  return document;
+}
+const blockedDocument = blockedCookieDocument();
+const blockedStart = bridgeFor('https://example.test/?route=tour-later&companyId=20260915-8', blockedStorage(), blockedStorage(), blockedDocument);
+await blockedStart.start();
+assert.equal(blockedStart.effects.forms.length, 1);
+assert.equal(blockedStart.effects.forms[0].action, TEST_GAS);
+assert.equal(blockedStart.effects.forms[0].fields.companyId, '20260915-8');
+const blockedGetterStart = bridgeFor('https://example.test/?route=tour-direct&companyId=20260915-9', null, null, blockedCookieDocument());
+await blockedGetterStart.start();
+assert.equal(blockedGetterStart.effects.forms.length, 1);
+assert.equal(blockedGetterStart.effects.forms[0].action, TEST_GAS);
+const blockedAuth = bridgeFor('https://example.test/?route=tour-later&companyId=20260915-8', blockedStorage(), blockedStorage(), blockedCookieDocument(), false);
+await blockedAuth.start();
+assert.equal(blockedAuth.effects.redirects.length, 1);
+assert.equal(new URL(blockedAuth.effects.redirects[0]).searchParams.get('companyId'), '20260915-8');
+const blockedButBadQuery = bridgeFor(`https://example.test/?gas=${encodeURIComponent(OTHER_GAS)}&route=tour-later`, blockedStorage(), blockedStorage(), blockedCookieDocument());
+await blockedButBadQuery.start();
+assert.equal(blockedButBadQuery.effects.forms.length, 0);
+assert.equal(blockedButBadQuery.effects.initCalls, 0);
+const badLocalWithBlockedSession = memoryStorage();
+badLocalWithBlockedSession.setItem(PENDING_KEY, JSON.stringify({ savedAt: Date.now(), gas: OTHER_GAS, route: 'tour-later' }));
+const rejectedAvailableStorage = bridgeFor('https://example.test/?route=tour-direct', blockedStorage(), badLocalWithBlockedSession);
+await rejectedAvailableStorage.start();
+assert.equal(rejectedAvailableStorage.effects.forms.length, 0);
 
 assert.doesNotMatch(source, /GAS_URL_PATTERN|allowedGasUrl/);
 assert.match(source, /const LIFF_ID = '2009668362-3dydAR8b'/);
