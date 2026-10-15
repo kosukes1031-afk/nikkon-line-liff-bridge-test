@@ -4,7 +4,7 @@ import vm from 'node:vm';
 
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
-const source = scripts.at(-1)[1].replace(/\bstart\(\);\s*$/, 'globalThis.__bridge = { params, allowedRoute, allowedGasUrl, stateParams, rememberParams, clearStoredParams, loginRedirectUrl };');
+const source = scripts.at(-1)[1].replace(/\bstart\(\);\s*$/, 'globalThis.__bridge = { params, allowedRoute, validLegacyGasParam, stateParams, rememberParams, clearStoredParams, loginRedirectUrl, start };');
 
 function memoryStorage() {
   const values = new Map();
@@ -17,8 +17,20 @@ function memoryStorage() {
 
 function memoryCookieDocument() {
   const values = new Map();
+  const effects = { status: { innerHTML: '' }, forms: [], redirects: [], initCalls: 0 };
   return {
-    getElementById: () => ({ innerHTML: '' }),
+    effects,
+    getElementById: () => effects.status,
+    createElement(tag) {
+      if (tag === 'input') return { type: '', name: '', value: '' };
+      if (tag !== 'form') throw new Error(`Unexpected element: ${tag}`);
+      return {
+        method: '', action: '', fields: [],
+        appendChild(input) { this.fields.push(input); },
+        submit() { effects.forms.push({ action: this.action, fields: Object.fromEntries(this.fields.map((input) => [input.name, input.value])) }); },
+      };
+    },
+    body: { appendChild() {} },
     get cookie() { return [...values].map(([name, value]) => `${name}=${value}`).join('; '); },
     set cookie(serialized) {
       const [pair, ...attributes] = String(serialized).split(';').map((part) => part.trim());
@@ -31,16 +43,16 @@ function memoryCookieDocument() {
   };
 }
 
-function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memoryStorage(), document = memoryCookieDocument()) {
+function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memoryStorage(), document = memoryCookieDocument(), loggedIn = true) {
   const parsedLocation = new URL(href);
+  const liff = {
+    async init() { document.effects.initCalls++; },
+    isLoggedIn: () => loggedIn,
+    getIDToken: () => 'FIXTURE_ID_TOKEN',
+    login({ redirectUri }) { document.effects.redirects.push(redirectUri); },
+  };
   const context = {
-    URL,
-    URLSearchParams,
-    Set,
-    String,
-    Number,
-    Date,
-    JSON,
+    URL, URLSearchParams, Set, String, Number, Date, JSON, Object, liff,
     sessionStorage,
     localStorage,
     location: { href, origin: parsedLocation.origin, pathname: parsedLocation.pathname },
@@ -48,14 +60,18 @@ function bridgeFor(href, sessionStorage = memoryStorage(), localStorage = memory
   };
   vm.createContext(context);
   vm.runInContext(source, context);
-  return context.__bridge;
+  return { ...context.__bridge, effects: document.effects };
 }
 
-const TEST_GAS = 'https://script.google.com/macros/s/TEST_DEPLOYMENT/exec';
+const TEST_GAS = 'https://script.google.com/macros/s/AKfycbxnkQ-bUwwSBk3r1a2A3KecxOXRNgUjHuxWOYKd7gCU7oXvEuM1OItJRBVohToPYnatTQ/exec';
+const OTHER_GAS = 'https://script.google.com/macros/s/OTHER_DEPLOYMENT/exec';
+const PROD_LIKE_GAS = 'https://script.google.com/macros/s/PRODUCTION_DEPLOYMENT/exec';
+const PENDING_KEY = 'nikkon-liff-bridge-test-pending-v2';
 
-assert.equal(bridgeFor('https://example.test/').allowedGasUrl(TEST_GAS), TEST_GAS);
-assert.equal(bridgeFor('https://example.test/').allowedGasUrl(`${TEST_GAS}?unexpected=1`), '');
-assert.equal(bridgeFor('https://example.test/').allowedGasUrl('https://attacker.invalid/macros/s/TEST_DEPLOYMENT/exec'), '');
+assert.equal(bridgeFor('https://example.test/').validLegacyGasParam(new URLSearchParams({ gas: TEST_GAS })), true);
+for (const gas of [OTHER_GAS, '', `${TEST_GAS}?unexpected=1`, 'https://attacker.invalid/exec']) {
+  assert.equal(bridgeFor('https://example.test/').validLegacyGasParam(new URLSearchParams({ gas })), false);
+}
 
 function read(href, sessionStorage, localStorage, document) {
   const result = bridgeFor(href, sessionStorage, localStorage, document).params();
@@ -63,15 +79,15 @@ function read(href, sessionStorage, localStorage, document) {
 }
 
 assert.deepEqual(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&route=companies`), {
-  gas: TEST_GAS,
   route: 'companies',
 });
 
 assert.deepEqual(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&liff.state=${encodeURIComponent('?route=companies')}`), {
-  gas: TEST_GAS,
   'liff.state': '?route=companies',
   route: 'companies',
 });
+assert.throws(() => read(`https://example.test/?gas=${encodeURIComponent(OTHER_GAS)}`), /許可されていません/);
+assert.throws(() => read(`https://example.test/?liff.state=${encodeURIComponent(`?gas=${encodeURIComponent(OTHER_GAS)}`)}`), /許可されていません/);
 
 assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&route=unknown&liff.state=${encodeURIComponent('?route=companies')}`).route, 'home');
 assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&liff.state=${encodeURIComponent('?route=unknown')}`).route, 'home');
@@ -94,7 +110,6 @@ const loginLocalStorage = memoryStorage();
 const beforeLogin = bridgeFor(`https://example.test/?liff.state=${encodeURIComponent(`?route=companies&gas=${encodeURIComponent(TEST_GAS)}`)}`, loginSessionStorage, loginLocalStorage);
 beforeLogin.rememberParams(beforeLogin.params());
 assert.deepEqual(read('https://example.test/', loginSessionStorage, loginLocalStorage), {
-  gas: TEST_GAS,
   route: 'companies',
   event: '',
   action: '',
@@ -107,7 +122,6 @@ assert.deepEqual(read('https://example.test/', loginSessionStorage, loginLocalSt
 const replacementSessionStorage = memoryStorage();
 beforeLogin.rememberParams(beforeLogin.params());
 assert.deepEqual(read('https://example.test/', replacementSessionStorage, loginLocalStorage), {
-  gas: TEST_GAS,
   route: 'companies',
   event: '',
   action: '',
@@ -121,7 +135,6 @@ cookieLogin.rememberParams(cookieLogin.params());
 assert.deepEqual(read('https://example.test/?code=callback&state=oauth', memoryStorage(), memoryStorage(), cookieDocument), {
   code: 'callback',
   state: 'oauth',
-  gas: TEST_GAS,
   route: 'companies',
   companyId: '',
 });
@@ -135,7 +148,7 @@ const redirectBridge = bridgeFor('https://example.test/bridge/', memoryStorage()
 const redirectParams = new URLSearchParams({ gas: TEST_GAS, route: 'companies' });
 const loginRedirect = new URL(redirectBridge.loginRedirectUrl(redirectParams));
 assert.equal(loginRedirect.origin + loginRedirect.pathname, 'https://example.test/bridge/');
-assert.equal(loginRedirect.searchParams.get('gas'), TEST_GAS);
+assert.equal(loginRedirect.searchParams.has('gas'), false);
 assert.equal(loginRedirect.searchParams.get('route'), 'companies');
 
 const tourCookieDocument = memoryCookieDocument();
@@ -156,11 +169,77 @@ const storageBridge = bridgeFor('https://example.test/?route=tour-direct&company
 storageBridge.rememberParams(storageBridge.params());
 assert.equal(read('https://example.test/', storedSession, memoryStorage()).companyId, '20260915-6');
 assert.equal(read('https://example.test/', memoryStorage(), storedLocal).companyId, '20260915-6');
+assert.equal(JSON.parse(storedSession.getItem(PENDING_KEY)).gas, undefined);
 
-assert.match(source, /GAS_URL_PATTERN/);
+// The old published bridge persisted its selected GAS. Its fixed PoC value remains compatible.
+const legacySession = memoryStorage();
+legacySession.setItem(PENDING_KEY, JSON.stringify({ savedAt: Date.now(), gas: TEST_GAS, route: 'tour-direct', companyId: '20260915-7' }));
+assert.deepEqual(read('https://example.test/', legacySession), {
+  route: 'tour-direct', companyId: '20260915-7',
+});
+assert.equal(read(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&route=home`).gas, undefined);
+
+for (const invalidGas of [PROD_LIKE_GAS, OTHER_GAS, '', 'x'.repeat(2049)]) {
+  const badSession = memoryStorage();
+  badSession.setItem(PENDING_KEY, JSON.stringify({ savedAt: Date.now(), gas: invalidGas, route: 'tour-later' }));
+  assert.throws(() => read('https://example.test/', badSession), /許可されていません/);
+  const badLocal = memoryStorage();
+  badLocal.setItem(PENDING_KEY, JSON.stringify({ savedAt: Date.now(), gas: invalidGas, route: 'tour-later' }));
+  assert.throws(() => read('https://example.test/', memoryStorage(), badLocal), /許可されていません/);
+}
+const badCookie = memoryCookieDocument();
+badCookie.cookie = `${PENDING_KEY}=${encodeURIComponent(JSON.stringify({ savedAt: Date.now(), gas: OTHER_GAS, route: 'tour-later' }))}; Path=/`;
+assert.throws(() => read('https://example.test/', memoryStorage(), memoryStorage(), badCookie), /許可されていません/);
+
+const normalStart = bridgeFor('https://example.test/?route=tour-direct&companyId=20260915-1');
+await normalStart.start();
+assert.equal(normalStart.effects.forms.length, 1);
+assert.equal(normalStart.effects.forms[0].action, TEST_GAS);
+assert.equal(normalStart.effects.forms[0].fields.route, 'tour-direct');
+assert.equal(normalStart.effects.forms[0].fields.companyId, '20260915-1');
+const legacyStart = bridgeFor(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&route=tour-later&companyId=20260915-2`);
+await legacyStart.start();
+assert.equal(legacyStart.effects.forms.length, 1);
+assert.equal(legacyStart.effects.forms[0].action, TEST_GAS);
+for (const href of [
+  `https://example.test/?gas=${encodeURIComponent(PROD_LIKE_GAS)}&route=tour-direct`,
+  `https://example.test/?gas=${encodeURIComponent(OTHER_GAS)}&route=tour-later`,
+  'https://example.test/?gas=&route=tour-later',
+  `https://example.test/?liff.state=${encodeURIComponent(`?gas=${encodeURIComponent(OTHER_GAS)}&route=tour-later`)}`,
+  `https://example.test/?code=callback&gas=${encodeURIComponent(OTHER_GAS)}&route=tour-later`,
+]) {
+  const rejected = bridgeFor(href);
+  await rejected.start();
+  assert.equal(rejected.effects.forms.length, 0);
+  assert.equal(rejected.effects.initCalls, 0);
+  assert.match(rejected.effects.status.innerHTML, /許可されていません/);
+}
+const storedRejected = memoryStorage();
+storedRejected.setItem(PENDING_KEY, JSON.stringify({ savedAt: Date.now(), gas: OTHER_GAS, route: 'tour-later' }));
+const rejectedStoredStart = bridgeFor('https://example.test/?route=tour-direct', storedRejected);
+await rejectedStoredStart.start();
+assert.equal(rejectedStoredStart.effects.forms.length, 0);
+assert.equal(rejectedStoredStart.effects.initCalls, 0);
+const rejectedDespiteGoodQuery = bridgeFor(`https://example.test/?gas=${encodeURIComponent(TEST_GAS)}&route=tour-direct`, storedRejected);
+await rejectedDespiteGoodQuery.start();
+assert.equal(rejectedDespiteGoodQuery.effects.forms.length, 0);
+const rejectedCookieStart = bridgeFor('https://example.test/?code=callback', memoryStorage(), memoryStorage(), badCookie);
+await rejectedCookieStart.start();
+assert.equal(rejectedCookieStart.effects.forms.length, 0);
+
+const loginStart = bridgeFor('https://example.test/?route=tour-later&companyId=20260915-3', memoryStorage(), memoryStorage(), memoryCookieDocument(), false);
+await loginStart.start();
+assert.equal(loginStart.effects.forms.length, 0);
+assert.equal(loginStart.effects.redirects.length, 1);
+const authRedirect = new URL(loginStart.effects.redirects[0]);
+assert.equal(authRedirect.searchParams.get('route'), 'tour-later');
+assert.equal(authRedirect.searchParams.get('companyId'), '20260915-3');
+assert.equal(authRedirect.searchParams.has('gas'), false);
+
+assert.doesNotMatch(source, /GAS_URL_PATTERN|allowedGasUrl/);
 assert.match(source, /const LIFF_ID = '2009668362-3dydAR8b'/);
 assert.match(source, /const DEFAULT_POC_GAS_URL = 'https:\/\/script\.google\.com\/macros\/s\/AKfycbxnkQ-bUwwSBk3r1a2A3KecxOXRNgUjHuxWOYKd7gCU7oXvEuM1OItJRBVohToPYnatTQ\/exec'/);
-assert.doesNotMatch(source, /const\s+GAS_URL\s*=/);
+assert.match(source, /form\.action=DEFAULT_POC_GAS_URL/);
 
 const startSource = source.slice(source.indexOf('async function start()'));
 assert.ok(startSource.indexOf('rememberParams(p);') < startSource.indexOf('await liff.init('));
